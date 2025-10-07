@@ -1,1 +1,3 @@
-1 2 3 ; 0 0 1 2 3
+variable hi
+10 hi !
+hi @

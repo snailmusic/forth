@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
-use std::{char, process::exit, vec};
+use std::{char, collections::HashMap, process::exit, vec};
 
 use pest::Parser;
 use pest_derive::Parser;
@@ -24,7 +24,14 @@ enum Func {
     Dup,
     Swap,
     Over,
-    Rotate
+    Rotate,
+    Store,
+    Retrieve
+}
+
+#[derive(Debug)]
+enum Reserved {
+    Variable(String)
 }
 
 #[derive(Debug)]
@@ -33,6 +40,7 @@ enum Token {
     Char(char),
     Float(f32),
     Func(Func),
+    Reserved(Reserved),
     Keyword(String),
 }
 
@@ -167,6 +175,8 @@ enum ExecutionError {
     EmptyStack,
     ImproperArgument,
     DivideByZero,
+    InvalidWord(String),
+    InvalidMemory,
 }
 
 impl std::fmt::Display for ExecutionError {
@@ -175,6 +185,8 @@ impl std::fmt::Display for ExecutionError {
             ExecutionError::EmptyStack => write!(f, "Empty stack error"),
             ExecutionError::DivideByZero => write!(f, "Attempt to divide by zero"),
             ExecutionError::ImproperArgument => write!(f, "Improper arguments provided"),
+            ExecutionError::InvalidWord(word) => write!(f, "Invalid word: {word}"),
+            ExecutionError::InvalidMemory => write!(f, "Memory location is invalid"),
         }
     }
 }
@@ -183,16 +195,11 @@ impl std::fmt::Display for ExecutionError {
 #[grammar = "grammar.pest"]
 pub struct ForthParser;
 
-fn parse_token(token: &str) -> Result<Token, ParseError> {
-    // large regex :#
+fn parse_token(token: pest::iterators::Pair<'_, Rule>) -> Result<Token, ParseError> {
 
-    let token_parse = ForthParser::parse(Rule::token, token).unwrap().next();
+    let token_str = token.as_str().to_owned();
 
-    if let None = token_parse {
-        return Err(ParseError::InvalidToken(token.to_owned()));
-    }
-
-    let token_parse = token_parse.unwrap().into_inner().next();
+    let token_parse = token.into_inner().next();
 
     if let Some(token_parse) = token_parse {
         // println!("{}", token_parse.as_str());
@@ -218,7 +225,7 @@ fn parse_token(token: &str) -> Result<Token, ParseError> {
                     if let Err(e) = character {
                         panic!("{:?}", e);
                     }
-                    return Err(ParseError::InvalidToken(token.to_owned()));
+                    return Err(ParseError::InvalidToken(token_str));
                 }
             },
             Rule::operator => {
@@ -235,18 +242,33 @@ fn parse_token(token: &str) -> Result<Token, ParseError> {
                     Rule::swp => Ok(Token::Func(Func::Swap)),
                     Rule::ovr => Ok(Token::Func(Func::Over)),
                     Rule::rot => Ok(Token::Func(Func::Rotate)),
+                    Rule::store => Ok(Token::Func(Func::Store)),
+                    Rule::retrieve => Ok(Token::Func(Func::Retrieve)),
                     _ => panic!("WHAT THE FUCK"),
                 }
             },
-            Rule::keyword => todo!(),
-            _ => return Err(ParseError::InvalidToken(token.to_owned()))
+            Rule::reservedKeyword => {
+                let kw = token_parse.into_inner().next().unwrap();
+                match kw.as_rule() {
+                    Rule::variable => {
+                        let name = kw.into_inner().next().unwrap();
+                        let name = name.as_str();
+                        return Ok(Token::Reserved(Reserved::Variable(name.to_owned())));
+                    }
+                    _ => panic!("WHAT THE FUCK"),
+                }
+            },
+            Rule::keyword => {
+                return Ok(Token::Keyword(token_parse.as_str().to_owned()));
+            },
+            _ => return Err(ParseError::InvalidToken(token_str))
         }
     }
 
-    Err(ParseError::InvalidToken(token.to_owned()))
+    Err(ParseError::InvalidToken(token_str))
 }
 
-fn execute_token<T: Stack<Data>>(token: Token, stack: &mut T) -> Result<(), ExecutionError> {
+fn execute_token<T: Stack<Data>>(token: Token, stack: &mut T, state: &mut HashMap<String, Word>, memory: &mut Vec<Option<Data>>) -> Result<(), ExecutionError> {
     match token {
         Token::Int(x) => {
             stack.push(Data::Int(x));
@@ -257,125 +279,183 @@ fn execute_token<T: Stack<Data>>(token: Token, stack: &mut T) -> Result<(), Exec
         Token::Float(_) => todo!(),
         Token::Func(func) => match func {
             Func::Add => {
-                let x_opt = stack.pop();
-                let y_opt = stack.pop();
-                if let None = x_opt {
-                    return Err(ExecutionError::EmptyStack);
-                }
-                if let None = y_opt {
-                    return Err(ExecutionError::EmptyStack);
-                }
-                if let Some(Data::Int(x)) = x_opt {
-                    if let Some(Data::Int(y)) = y_opt {
-                        stack.push(Data::Int(x + y));
-                        return Ok(());
-                    } else {
-                        return Err(ExecutionError::ImproperArgument);
+                        let x_opt = stack.pop();
+                        let y_opt = stack.pop();
+                        if let None = x_opt {
+                            return Err(ExecutionError::EmptyStack);
+                        }
+                        if let None = y_opt {
+                            return Err(ExecutionError::EmptyStack);
+                        }
+                        if let Some(Data::Int(x)) = x_opt {
+                            if let Some(Data::Int(y)) = y_opt {
+                                stack.push(Data::Int(x + y));
+                                return Ok(());
+                            } else {
+                                return Err(ExecutionError::ImproperArgument);
+                            }
+                        } else {
+                            return Err(ExecutionError::ImproperArgument);
+                        }
                     }
-                } else {
-                    return Err(ExecutionError::ImproperArgument);
-                }
-            }
             Func::Sub => {
-                let x_opt = stack.pop();
-                let y_opt = stack.pop();
-                if let None = x_opt {
-                    return Err(ExecutionError::EmptyStack);
-                }
-                if let None = y_opt {
-                    return Err(ExecutionError::EmptyStack);
-                }
-                if let Some(Data::Int(x)) = x_opt {
-                    if let Some(Data::Int(y)) = y_opt {
-                        stack.push(Data::Int(x - y));
-                        return Ok(());
-                    } else {
-                        return Err(ExecutionError::ImproperArgument);
+                        let x_opt = stack.pop();
+                        let y_opt = stack.pop();
+                        if let None = x_opt {
+                            return Err(ExecutionError::EmptyStack);
+                        }
+                        if let None = y_opt {
+                            return Err(ExecutionError::EmptyStack);
+                        }
+                        if let Some(Data::Int(x)) = x_opt {
+                            if let Some(Data::Int(y)) = y_opt {
+                                stack.push(Data::Int(x - y));
+                                return Ok(());
+                            } else {
+                                return Err(ExecutionError::ImproperArgument);
+                            }
+                        } else {
+                            return Err(ExecutionError::ImproperArgument);
+                        }
                     }
-                } else {
-                    return Err(ExecutionError::ImproperArgument);
-                }
-            }
             Func::Mul => {
-                let x_opt = stack.pop();
-                let y_opt = stack.pop();
-                if let None = x_opt {
-                    return Err(ExecutionError::EmptyStack);
-                }
-                if let None = y_opt {
-                    return Err(ExecutionError::EmptyStack);
-                }
-                if let Some(Data::Int(x)) = x_opt {
-                    if let Some(Data::Int(y)) = y_opt {
-                        stack.push(Data::Int(x * y));
-                        return Ok(());
-                    } else {
-                        return Err(ExecutionError::ImproperArgument);
+                        let x_opt = stack.pop();
+                        let y_opt = stack.pop();
+                        if let None = x_opt {
+                            return Err(ExecutionError::EmptyStack);
+                        }
+                        if let None = y_opt {
+                            return Err(ExecutionError::EmptyStack);
+                        }
+                        if let Some(Data::Int(x)) = x_opt {
+                            if let Some(Data::Int(y)) = y_opt {
+                                stack.push(Data::Int(x * y));
+                                return Ok(());
+                            } else {
+                                return Err(ExecutionError::ImproperArgument);
+                            }
+                        } else {
+                            return Err(ExecutionError::ImproperArgument);
+                        }
                     }
-                } else {
-                    return Err(ExecutionError::ImproperArgument);
-                }
-            }
             Func::Div => todo!(),
             Func::Print => {
-                let val_opt = stack.pop();
-                if let Some(val) = val_opt {
-                    print!("{}", val);
-                    return Ok(());
-                } else {
-                    return Err(ExecutionError::EmptyStack);
-                }
-            }
+                        let val_opt = stack.pop();
+                        if let Some(val) = val_opt {
+                            print!("{}", val);
+                            return Ok(());
+                        } else {
+                            return Err(ExecutionError::EmptyStack);
+                        }
+                    }
             Func::Input => todo!(),
             Func::DPrint => {
-                let val_opt = stack.pop();
-                if let Some(val) = val_opt {
-                    println!("{:?}", val);
-                    return Ok(());
-                } else {
-                    return Err(ExecutionError::EmptyStack);
-                }
-            }
+                        let val_opt = stack.pop();
+                        if let Some(val) = val_opt {
+                            println!("{:?}", val);
+                            return Ok(());
+                        } else {
+                            return Err(ExecutionError::EmptyStack);
+                        }
+                    }
             Func::Dup => {
-                if let Err(x) = stack.dup() {
-                    return Err(ExecutionError::EmptyStack);
+                        if let Err(x) = stack.dup() {
+                            return Err(ExecutionError::EmptyStack);
+                        }
+                    }
+            Func::Swap => {
+                        if let Err(x) = stack.swap() {
+                            return Err(ExecutionError::EmptyStack);
+                        }
+                    },
+            Func::Over => {
+                        if let Err(x) = stack.over() {
+                            return Err(ExecutionError::EmptyStack);
+                        }
+                    },
+            Func::Rotate => {
+                        if let Err(x) = stack.rotate() {
+                            return Err(ExecutionError::EmptyStack);
+                        }
+                    }
+            Func::Store => {
+                if let (Some(Data::Int(memory_loc)), Some(val)) = (stack.pop(), stack.pop()) {
+                    memory[memory_loc as usize] = Some(val);
+                }
+                else {
+                    return Err(ExecutionError::ImproperArgument);
+                }
+            },
+            Func::Retrieve => {
+                if let Some(Data::Int(memory_loc)) = stack.pop() {
+                    if let Some(data) = memory[memory_loc as usize] {
+                        stack.push(data);
+                    }
+                    else {
+                        return Err(ExecutionError::InvalidMemory);
+                    }
+                }
+                else {
+                    return Err(ExecutionError::ImproperArgument);
+                }
+            },
+        },
+        Token::Reserved(reserved) => match reserved {
+            Reserved::Variable(keyword) => {
+                let memory_loc = memory.len() as i32;
+                state.insert(keyword, Word::Data(Data::Int(memory_loc)));
+                memory.push(None);
+            },
+        }
+        Token::Keyword(word) => {
+            if let Some(word) = state.get(&word) {
+                match word {
+                    Word::Word(pair) => todo!(),
+                    Word::Data(data) => {
+                        stack.push(*data);
+                    },
                 }
             }
-            Func::Swap => {
-                if let Err(x) = stack.swap() {
-                    return Err(ExecutionError::EmptyStack);
-                }
-            },
-            Func::Over => {
-                if let Err(x) = stack.over() {
-                    return Err(ExecutionError::EmptyStack);
-                }
-            },
-            Func::Rotate => {
-                if let Err(x) = stack.rotate() {
-                    return Err(ExecutionError::EmptyStack);
-                }
+            else {
+                return Err(ExecutionError::InvalidWord(word));
             }
         },
-        Token::Keyword(_) => todo!(),
     }
     Ok(())
 }
 
+enum Word<'a> {
+    // store ast of the thing lmao
+    Word(pest::iterators::Pair<'a, Rule>),
+    // for accessing memory
+    Data(Data),
+}
+
 fn main() {
     let mut stack: Vec<Data> = vec![];
+    let mut state: HashMap<String, Word> = HashMap::new();
+    let mut memory: Vec<Option<Data>> = vec![];
 
     let file = std::fs::read_to_string("./test.forth").unwrap();
 
     // let test: &str = "1 2 3 + + . $";
-    for str_token in file.split_ascii_whitespace() {
-        // println!("{str_token}");
-        let token = parse_token(str_token).expect("Parse Error");
-        if let Err(error) = execute_token(token, &mut stack) {
+    let ast = ForthParser::parse(Rule::tokens, file.as_str()).unwrap().next().unwrap();
+    // println!("{:?}", ast);
+    for token in ast.into_inner() {
+        let token = parse_token(token).expect("Parse Error");
+        if let Err(error) = execute_token(token, &mut stack, &mut state, &mut memory) {
             println!("Execution error: {error}");
             exit(1);
         }
     }
+    // for str_token in file.split_ascii_whitespace() {
+    //     // println!("{str_token}");
+    //     let token = parse_token(str_token).expect("Parse Error");
+    //     if let Err(error) = execute_token(token, &mut stack) {
+    //         println!("Execution error: {error}");
+    //         exit(1);
+    //     }
+    // }
     println!();
     print_stack(&stack);
 }
