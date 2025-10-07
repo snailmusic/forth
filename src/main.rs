@@ -2,7 +2,8 @@
 #![allow(unused_variables)]
 use std::{char, process::exit, vec};
 
-use regex::Regex;
+use pest::Parser;
+use pest_derive::Parser;
 
 #[derive(Clone, Copy)]
 enum Data {
@@ -143,59 +144,65 @@ impl std::fmt::Display for ExecutionError {
     }
 }
 
+#[derive(Parser)]
+#[grammar = "grammar.pest"]
+pub struct ForthParser;
+
 fn parse_token(token: &str) -> Result<Token, ParseError> {
     // large regex :#
-    let re = Regex::new(r"(?<float>\d+\.\d+)|(?<int>\d+)|(?<char>'\\?.)|(?<ops>\+|\-|\/|\*|\||\$|\.|\#|\:)|(?<keyword>[A-Z]\w+)").unwrap();
 
-    if let Some(capture) = re.captures(token) {
-        // println!("{:?}", capture);
-        if let Some(float) = capture.name("float") {
-            // Read float
-            todo!();
-        }
-        if let Some(int) = capture.name("int") {
-            // read int
-            return Ok(Token::Int(int.as_str().parse().unwrap()));
-        }
-        if let Some(character) = capture.name("char") {
-            // read char
-            let (_, character) = character.as_str().split_at(1);
-            let character = character.replace("\\n", "\n");
-            let character = character.replace("\\t", "\t");
-            let character = character.parse::<char>();
-            if let Ok(character) = character {
-                return Ok(
-                    Token::Char(
-                        character
+    let token_parse = ForthParser::parse(Rule::token, token).unwrap().next();
+
+    if let None = token_parse {
+        return Err(ParseError::InvalidToken(token.to_owned()));
+    }
+
+    let token_parse = token_parse.unwrap().into_inner().next();
+
+    if let Some(token_parse) = token_parse {
+        // println!("{}", token_parse.as_str());
+        match token_parse.as_rule() {
+            Rule::float => todo!(),
+            Rule::int => {
+                return Ok(Token::Int(token_parse.as_str().parse().unwrap()));
+            },
+            Rule::char => {
+                let character = token_parse.as_str();
+                let (_, character) = character.split_at(1);
+                let character = character.replace("\\n", "\n");
+                let character = character.replace("\\t", "\t");
+                let character = character.parse::<char>();
+                if let Ok(character) = character {
+                    return Ok(
+                        Token::Char(
+                            character
+                        )
                     )
-                )
-            }
-            else {
-                if let Err(e) = character {
-                    panic!("{:?}", e);
                 }
-                return Err(ParseError::InvalidToken(token.to_owned()));
-            }
-            
-        }
-        if let Some(op) = capture.name("ops") {
-            // read op
-            return match op.as_str() {
-                "+" => Ok(Token::Func(Func::Add)),
-                "-" => Ok(Token::Func(Func::Sub)),
-                "/" => Ok(Token::Func(Func::Div)),
-                "*" => Ok(Token::Func(Func::Mul)),
-                "|" => Ok(Token::Func(Func::Input)),
-                "$" => Ok(Token::Func(Func::Print)),
-                "." => Ok(Token::Func(Func::Dup)),
-                ":" => Ok(Token::Func(Func::Swap)),
-                "#" => Ok(Token::Func(Func::DPrint)),
-                x => Err(ParseError::InvalidToken(x.to_owned())),
-            };
-        }
-        if let Some(keyword) = capture.name("keyword") {
-            // perform a keyword search in internal hashmap
-            todo!();
+                else {
+                    if let Err(e) = character {
+                        panic!("{:?}", e);
+                    }
+                    return Err(ParseError::InvalidToken(token.to_owned()));
+                }
+            },
+            Rule::operator => {
+                let operator = token_parse.into_inner().next().unwrap();
+                return match operator.as_rule() {
+                    Rule::add => Ok(Token::Func(Func::Add)),
+                    Rule::sub => Ok(Token::Func(Func::Sub)),
+                    Rule::mul => Ok(Token::Func(Func::Mul)),
+                    Rule::div => Ok(Token::Func(Func::Div)),
+                    Rule::inp => Ok(Token::Func(Func::Input)),
+                    Rule::print => Ok(Token::Func(Func::Print)),
+                    Rule::debugprint => Ok(Token::Func(Func::DPrint)),
+                    Rule::dup => Ok(Token::Func(Func::Dup)),
+                    Rule::swp => Ok(Token::Func(Func::Swap)),
+                    _ => panic!("WHAT THE FUCK"),
+                }
+            },
+            Rule::keyword => todo!(),
+            _ => return Err(ParseError::InvalidToken(token.to_owned()))
         }
     }
 
