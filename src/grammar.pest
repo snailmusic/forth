@@ -8,11 +8,12 @@ debugprint = @{"#"}
 dup = @{"."}
 swp = @{":"}
 ovr = @{","}
+rot = @{";"}
 
 float = @{ASCII_DIGIT+~"."~ASCII_DIGIT+}
 int = @{ASCII_DIGIT+}
 char = @{"'"~"\\"*~ANY}
-operator = {add|sub|mul|div|inp|print|debugprint|dup|swp|ovr}
+operator = {add|sub|mul|div|inp|print|debugprint|dup|swp|ovr|rot}
 keyword = @{ASCII_ALPHA~ASCII_ALPHANUMERIC*}
 
 token = {float|int|char|operator|keyword}

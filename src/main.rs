@@ -23,7 +23,8 @@ enum Func {
     DPrint,
     Dup,
     Swap,
-    Over
+    Over,
+    Rotate
 }
 
 #[derive(Debug)]
@@ -70,6 +71,7 @@ pub trait Stack<T> {
     fn push(&mut self, val: T) -> usize;
 
     fn over(&mut self) -> Result<usize, StackError>;
+    fn rotate(&mut self) -> Result<(), StackError>;
 }
 
 impl<T> Stack<T> for Vec<T>
@@ -133,6 +135,17 @@ where
             }
         }
         else {
+            return Err(StackError::EmptyStack);
+        }
+    }
+
+    fn rotate(&mut self) -> Result<(), StackError> {
+        if let (Some(x), Some(y), Some(z)) = (self.pop(), self.pop(), self.pop()) {
+            self.push(y);
+            self.push(x);
+            self.push(z);
+            return Ok(());
+        } else {
             return Err(StackError::EmptyStack);
         }
     }
@@ -221,6 +234,7 @@ fn parse_token(token: &str) -> Result<Token, ParseError> {
                     Rule::dup => Ok(Token::Func(Func::Dup)),
                     Rule::swp => Ok(Token::Func(Func::Swap)),
                     Rule::ovr => Ok(Token::Func(Func::Over)),
+                    Rule::rot => Ok(Token::Func(Func::Rotate)),
                     _ => panic!("WHAT THE FUCK"),
                 }
             },
@@ -334,6 +348,11 @@ fn execute_token<T: Stack<Data>>(token: Token, stack: &mut T) -> Result<(), Exec
             },
             Func::Over => {
                 if let Err(x) = stack.over() {
+                    return Err(ExecutionError::EmptyStack);
+                }
+            },
+            Func::Rotate => {
+                if let Err(x) = stack.rotate() {
                     return Err(ExecutionError::EmptyStack);
                 }
             }
